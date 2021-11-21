@@ -3,22 +3,26 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"hash/fnv"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/disintegration/imageorient"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/termenv"
 	"github.com/nfnt/resize"
-	"github.com/spf13/viper"
 	"golang.org/x/net/html"
-	"image"
-	_ "image/jpeg"
-	_ "image/png"
-	"io"
-	"log"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+	"gopkg.in/yaml.v2"
 
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/lipgloss"
@@ -27,7 +31,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TODO: file browser, save prefs, 2 pages view, error handling(open wrong epub file, save position, etc)
+// TODO: file browser, 2 pages view
 type Config struct {
 	Foreground string `yaml:"foreground"`
 	Background string `yaml:"background"`
@@ -35,13 +39,13 @@ type Config struct {
 }
 
 type BookSave struct {
-	Title   string   `yaml:"title"`
-	Offset int      `yaml:"offset"`
-	Page    int      `yaml:"page"`
+	Title  string `yaml:"title"`
+	Offset int    `yaml:"offset"`
+	Page   int    `yaml:"page"`
 }
 
 var (
-	duration = time.Second * 5
+	duration = time.Second * 3
 	interval = time.Millisecond
 )
 
@@ -51,6 +55,12 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Duration(interval), func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func hash(s string) string {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return strconv.FormatUint(uint64(h.Sum32()), 10)
 }
 
 func readerToImage(width uint, height uint, r io.Reader) (string, error) {
@@ -207,7 +217,7 @@ func (m model) renderPage() string {
 		Width(int(m.width)).
 		Background(lipgloss.Color("grey")).
 		Foreground(lipgloss.Color("white")).
-		Padding(1, 2, 1).
+		//Padding(1, 2, 1).
 		Render(b.String())
 	//twoPage := lipgloss.NewStyle().Width(int(m.width)/2-2).Height(int(m.height)).Render(str)
 	return str
@@ -215,46 +225,51 @@ func (m model) renderPage() string {
 }
 
 func (m model) savePosition() {
-	configHome := os.ExpandEnv("$HOME/.gobookreader")
-	configType := "yml"
-	configName := m.bk.Opf.Metadata.Title[0]
-	configPath := filepath.Join(configHome, configName+"."+configType)
-	viper.SetConfigName(configName)
-	viper.SetConfigType(configType)
-	viper.AddConfigPath(configHome)
-	viper.Set("title", configName)
-	viper.Set("offset", m.viewport.YOffset)
-	viper.Set("page", m.paginator.Page)
-	_, err := os.Stat(configPath)
-	if os.IsNotExist(err) {
-		if err := viper.SafeWriteConfig(); err != nil {
-			// handle failed write
-			log.Fatal("cannot write config:", err)
-		}
-	} else {
-		if err := viper.WriteConfig(); err != nil {
-			// handle failed write
-			log.Fatal("cannot write config:", err)
+	configHome := os.ExpandEnv("$HOME/.termepub")
+	if _, err := os.Stat(configHome); os.IsNotExist(err) {
+		if err := os.Mkdir(configHome, os.ModePerm); err != nil {
+			log.Fatal("cannot create config dir:", err)
 		}
 	}
+	configType := "yml"
+	configName := m.bk.Opf.Metadata.Title[0]
+	name := hash(configName)
+	configPath := filepath.Join(configHome, name+"."+configType)
+	save := BookSave{
+		Title:  configName,
+		Offset: m.viewport.YOffset,
+		Page:   m.paginator.Page,
+	}
+	data, err := yaml.Marshal(&save)
+	if err != nil {
+		log.Fatal("", err)
+	}
+	err = os.WriteFile(configPath, data, 0644)
+	if err != nil {
+		log.Fatal("cannot write file:", err)
+	}
+
 }
 
 func (m model) loadPosition() (save BookSave, err error) {
-	configHome := os.ExpandEnv("$HOME/.gobookreader")
+	configHome := os.ExpandEnv("$HOME/.termepub")
 	configType := "yml"
 	configName := m.bk.Opf.Metadata.Title[0]
-	configPath := filepath.Join(configHome, configName+"."+configType)
-	viper.SetConfigName(configName)
-	viper.SetConfigType(configType)
-	viper.AddConfigPath(configHome)
+	name := hash(configName)
+	configPath := filepath.Join(configHome, name+"."+configType)
 	if _, err = os.Stat(configPath); os.IsNotExist(err) {
 		return
 	}
-	err = viper.ReadInConfig()
+	buf, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		log.Fatal("cannot read config:", err)
+		return
 	}
-	err = viper.Unmarshal(&save)
+
+	err = yaml.Unmarshal(buf, &save)
+	if err != nil {
+		return
+	}
+
 	return
 }
 
@@ -321,16 +336,12 @@ func (m model) View() string {
 			BorderRight(true).
 			BorderBottom(true)
 		text := fmt.Sprintf(
-			"%s%s%s\n%s%s%s\n%s%s%s\n",
+			"%s%s%s\n%s%s",
 			strings.Repeat(" ", 5),
 			m.bk.Opf.Metadata.Title[0],
 			strings.Repeat(" ", 5),
 			strings.Repeat(" ", 5),
 			m.bk.Opf.Metadata.Creator[0].Data,
-			strings.Repeat(" ", 5),
-			strings.Repeat(" ", 5),
-			m.bk.Opf.Metadata.Description,
-			strings.Repeat(" ", 5),
 		)
 		landing := lipgloss.Place(int(m.width), int(m.height),
 			lipgloss.Center, lipgloss.Center,
@@ -369,49 +380,8 @@ func (m model) View() string {
 	return m.viewport.View() + "\n" + bar
 }
 
-// LoadConfig reads configuration from file
-func LoadConfig(path string) (config Config, err error) {
-	configHome := os.ExpandEnv("$HOME/.gobookreader")
-	configName := "config"
-	configType := "yml"
-	configPath := filepath.Join(configHome, configName+"."+configType)
-	viper.SetConfigName(configName)
-	viper.SetConfigType(configType)
-	viper.AddConfigPath(configHome)
-	if _, err := os.Stat(configHome); os.IsNotExist(err) {
-		err = os.Mkdir(configHome, 0755)
-		if err != nil {
-			log.Fatal("cannot create config dir:", err)
-		}
-	}
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if _, err := os.Create(configPath); err != nil { // perm 0666
-			// handle failed create
-			log.Fatal("cannot create config:", err)
-		}
-	}
-	if err := viper.SafeWriteConfig(); err != nil {
-		// handle failed write
-		log.Fatal("cannot write config:", err)
-	}
-
-	err = viper.ReadInConfig()
-	if err != nil {
-		log.Fatal("cannot read config:", err)
-	}
-
-	err = viper.Unmarshal(&config)
-	return
-}
-
 func main() {
-	//config, err := LoadConfig(".")
-	//if err != nil {
-	//	log.Fatal("cannot load config:", err)
-	//}
-	//fmt.Println(config.Background)
 	bk, err := epub.Open(os.Args[1])
-	//bk, err := epub.Open("alice.epub")
 	if err != nil {
 		log.Fatal(err)
 	}
