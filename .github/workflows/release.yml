@@ -13,5 +13,5 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: linux
         goarch: amd64
-        binary_name: "termepub"
-        asset_name: ${BINARY_NAME}-${GOOS}-${GOARCH}
+        goversion: 1.17
+        asset_name: ${BINARY_NAME}
