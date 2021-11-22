@@ -14,5 +14,5 @@ jobs:
         goos: linux
         goarch: amd64
         goversion: 1.17
-        binary_name: "termepub"
-        asset_name: ${BINARY_NAME}
+        binary_name: termepub
+        asset_name: termepub
