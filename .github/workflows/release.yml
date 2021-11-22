@@ -14,3 +14,4 @@ jobs:
         goos: linux
         goarch: amd64
         binary_name: "termepub"
+        asset_name: ${BINARY_NAME}-${GOOS}-${GOARCH}

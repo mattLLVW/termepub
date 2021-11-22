@@ -8,9 +8,15 @@
 - Images rendering.
 - Save reading position.
 
-## Download
+## Download and install
 
-Pre-compiled executables are available via Github releases.
+Pre-compiled executables are available via [Github releases](https://github.com/mattLLVW/termepub/releases/latest).
+
+```shell
+wget https://github.com/mattLLVW/termepub/releases/download/latest/termepub-linux-amd64.tar.gz
+tar -zxf termepub-linux-amd64.tar.gz -C /usr/local/bin
+chmod +x /usr/local/bin/termepub
+```
 
 ## Build from sources
 
@@ -25,3 +31,13 @@ go build main.go -o termepub
 ```shell
 termepub your_book.epub
 ```
+
+### Controls
+
+Quit: q
+
+Line Up/Down: ↑/↓
+
+Next/Previous chapter: ←/→
+
+Page Up/Down: ⇞/⇟
